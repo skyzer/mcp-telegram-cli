@@ -18,10 +18,24 @@ from pydantic import Field
 SCHEMA_NAME = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)?")
 MAX_PARAMS = 24_000
 MAX_OUTPUT = 1_048_576
+MAX_SAFE_INTEGER = (1 << 53) - 1
 
 
 def is_schema_name(name: object) -> bool:
     return isinstance(name, str) and len(name) <= 128 and bool(SCHEMA_NAME.fullmatch(name))
+
+
+def mcp_json(value: Any, *, reject_wide_integers: bool = False) -> Any:
+    if type(value) is int and abs(value) > MAX_SAFE_INTEGER:
+        if reject_wide_integers:
+            raise ToolError("Pass integers outside the JavaScript safe range as decimal strings")
+        return str(value)
+    if isinstance(value, list):
+        return [mcp_json(item, reject_wide_integers=reject_wide_integers) for item in value]
+    if isinstance(value, dict):
+        return {key: mcp_json(item, reject_wide_integers=reject_wide_integers)
+                for key, item in value.items()}
+    return value
 
 
 @contextmanager
@@ -86,7 +100,10 @@ class TelegramCLI:
         if (not isinstance(envelope, dict) or type(envelope.get("schema")) is not int
                 or envelope["schema"] != 1 or "data" not in envelope):
             raise ToolError("Unsupported tg JSON envelope")
-        return envelope["data"]
+        try:
+            return mcp_json(envelope["data"])
+        except RecursionError:
+            raise ToolError("tg JSON response is nested too deeply") from None
 
     async def list_methods(self, query: str, offset: int, limit: int) -> dict[str, Any]:
         names = await self.run("list", timeout=10)
@@ -113,10 +130,11 @@ class TelegramCLI:
             raise ToolError("Telegram method is outside the configured allowlist")
         try:
             payload = json.dumps(params, allow_nan=False, separators=(",", ":"))
+            if len(payload) > MAX_PARAMS:
+                raise ToolError("Telegram RPC argument payload exceeds 24,000 bytes")
+            mcp_json(params, reject_wide_integers=True)
         except (ValueError, RecursionError):
             raise ToolError("Telegram arguments must be valid JSON") from None
-        if len(payload) > MAX_PARAMS:
-            raise ToolError("Telegram RPC argument payload exceeds 24,000 bytes")
         with session_lock(self.lock_file):
             try:
                 data = await self.run("invoke", "--yes", "--", method, payload, timeout=45)
@@ -128,7 +146,8 @@ class TelegramCLI:
 def make_server(cli: TelegramCLI) -> FastMCP:
     server = FastMCP("telegram-cli", instructions=(
         "List Telegram methods with telegram_list, inspect inputs with telegram_describe, "
-        "and call a configured method with telegram_invoke."
+        "and call a configured method with telegram_invoke. "
+        "Pass 64-bit IDs and access hashes as decimal strings to preserve precision."
     ))
 
     @server.tool()
@@ -147,7 +166,10 @@ def make_server(cli: TelegramCLI) -> FastMCP:
 
     @server.tool()
     async def telegram_invoke(method: str, params: dict[str, Any]) -> dict[str, Any]:
-        """Call an allowed Telegram method. Some methods change the account or send messages."""
+        """Call an allowed Telegram method, which may send messages or change account data.
+
+        Pass 64-bit IDs and access hashes as decimal strings.
+        """
         return await cli.invoke(method, params)
 
     return server

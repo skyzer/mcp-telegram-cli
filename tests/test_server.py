@@ -34,7 +34,8 @@ elif command == "describe":
     data = {"name": args[1], "parameters": []}
 else:
     assert command == "invoke" and args[:2] == ["--yes", "--"]
-    data = {"method": args[2], "params": json.loads(args[3])}
+    data = {"method": args[2], "params": json.loads(args[3]),
+            "ids": [9007199254740991, 9007199254740993, -9223372036854775808]}
 print(json.dumps({"schema": 1, "data": data}))
 '''
 
@@ -82,12 +83,14 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(denied.isError)
             self.assertIn("allowlist", denied.content[0].text)
 
-            params = {"text": "--account=other é\n", "nested": {"_": "exampleType"}}
+            params = {"text": "--account=other é\n",
+                      "nested": {"_": "inputPeerChannel", "access_hash": "9007199254740993"}}
             allowed = await session.call_tool("telegram_invoke", {
                 "method": "help.getConfig", "params": params,
             })
             self.assertEqual(allowed.structuredContent, {
-                "data": {"method": "help.getConfig", "params": params},
+                "data": {"method": "help.getConfig", "params": params,
+                         "ids": [9007199254740991, "9007199254740993", "-9223372036854775808"]},
             })
 
     async def test_lock_and_input_limit(self):
@@ -96,6 +99,8 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
                 await self.cli.invoke("help.getConfig", {})
         with self.assertRaisesRegex(ToolError, "24,000"):
             await self.cli.invoke("help.getConfig", {"text": "x" * 24_000})
+        with self.assertRaisesRegex(ToolError, "decimal strings"):
+            await self.cli.invoke("help.getConfig", {"peer": {"access_hash": 9007199254740993}})
         self.assertEqual((await self.cli.invoke("help.getConfig", {}))["data"]["params"], {})
 
     async def test_bounded_process_output_and_time(self):

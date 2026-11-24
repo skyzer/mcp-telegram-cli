@@ -12,17 +12,17 @@ Telegram MCP servers such as [lexfrei/mcp-tg](https://github.com/lexfrei/mcp-tg)
 
 ## Install
 
-Use Python 3.11 or newer on macOS or Linux. The bridge currently requires the [schema RPC fork of `tg`](https://github.com/skyzer/cli/tree/4b7f775a80789e1f2a0565b0e02c143e0c57bf06). The standard `gotd/cli` 0.12.1 release lacks `tg rpc list`, `tg rpc describe`, and `tg rpc invoke`. Build the compatible binary into a separate path with Go 1.26 or newer.
+Use Python 3.11 or newer on macOS or Linux. The bridge currently requires the [schema RPC fork of `tg`](https://github.com/skyzer/cli/tree/a68c75683aacef377f638fed6fee68cc9ec3bc37). The standard `gotd/cli` 0.12.1 release lacks `tg rpc list`, `tg rpc describe`, and `tg rpc invoke`. Build the compatible binary into a separate path with Go 1.26 or newer.
 
 ```sh
 git clone --branch codex/telegram-rpc-discovery --single-branch https://github.com/skyzer/cli.git tg-rpc-source
 mkdir -p "$HOME/.local/bin"
 cd tg-rpc-source
-git switch --detach 4b7f775a80789e1f2a0565b0e02c143e0c57bf06
+git switch --detach a68c75683aacef377f638fed6fee68cc9ec3bc37
 go build -o "$HOME/.local/bin/tg-rpc" ./cmd/tg
 ```
 
-Install the Python bridge in an isolated environment. The project is distributed from GitHub.
+Install the Python bridge in an isolated environment. The install targets an immutable GitHub release tag. The build backend and direct Python dependencies are pinned to the tested versions.
 
 ```sh
 pipx install 'git+https://github.com/skyzer/mcp-telegram-cli.git@v0.1.0'
@@ -51,6 +51,8 @@ Register the bridge as one stdio MCP server. This example uses the local MCP JSO
 Run the bridge with the same OS user, config, account label, and storage access as the existing CLI. That includes access to the macOS Keychain if `tg` uses it. `telegram_list` and `telegram_describe` work without a Telegram login. `telegram_invoke` needs the existing authenticated session. Remove the example `--allow` pair for discovery-only mode. Repeat `--allow` to grant more exact method names.
 
 Try `telegram_list` with `{"query":"help.getConfig"}`, then `telegram_describe` with `{"name":"help.getConfig"}`. To invoke it, pass `{"method":"help.getConfig","params":{}}`. When a field takes an abstract TL type, specify the constructor in `_`, for example `{"_":"inputPeerSelf"}`.
+
+Pass 64-bit fields such as `access_hash` and `random_id` as decimal strings, for example `"9007199254740993"`. This preserves precision in JavaScript-based clients. The bridge rejects integer numbers outside JavaScript's safe range and returns large integers as decimal strings.
 
 Each invocation takes a file lock. It defaults to `.tg-session.lock` next to the config, and `--lock-file` can point at a writable lock shared with another process. A lock only coordinates programs that use the same file. If an importer uses this session, configure its existing lock here or arrange for the processes to run at different times.
 
