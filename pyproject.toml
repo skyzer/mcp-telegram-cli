@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "telegram-cli-mcp"
+version = "0.1.0"
+description = "MCP access to the Telegram RPC schema and an existing tg CLI session"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = ["mcp>=1.27,<2", "pydantic>=2.11,<3"]
+
+[project.urls]
+Repository = "https://github.com/skyzer/mcp-telegram-cli"
+
+[project.scripts]
+telegram-cli-mcp = "telegram_cli_mcp.server:main"
