@@ -52,12 +52,13 @@ Run the bridge with the same OS user, config, account label, and storage access 
 
 ### Automatic schema updates and full method access
 
-Build the runtime-schema version of the [CLI fork](https://github.com/skyzer/cli/tree/9c6f5a9971db743424a157656b44464eaf079f3b). Use the pinned source revision for the following configuration:
+Build the runtime-schema version of the [CLI fork](https://github.com/skyzer/cli/tree/24072a93e8826f1599d5ab6fb5e0ea0889d83a2a). Use the pinned source revision for the following configuration:
 
 ```sh
-git clone --branch codex/telegram-runtime-schema --single-branch https://github.com/skyzer/cli.git tg-runtime-source
+git init tg-runtime-source
 cd tg-runtime-source
-git switch --detach 9c6f5a9971db743424a157656b44464eaf079f3b
+git fetch --depth=1 https://github.com/skyzer/cli.git 24072a93e8826f1599d5ab6fb5e0ea0889d83a2a
+git switch --detach FETCH_HEAD
 mkdir -p "$HOME/.local/bin"
 go build -o "$HOME/.local/bin/tg-rpc" ./cmd/tg
 ```
