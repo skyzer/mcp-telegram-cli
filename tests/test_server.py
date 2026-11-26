@@ -22,8 +22,12 @@ argv = sys.argv[1:]
 assert argv[:1] == ["--config"]
 assert argv[2:7] == ["--account", "existing-account", "--output", "json", "rpc"]
 command, *args = argv[7:]
+catalog = Path(argv[1])
+if command == "--schema-cache":
+    catalog = Path(args[0])
+    command, *args = args[1:]
 if command == "list":
-    data = json.loads(Path(argv[1]).read_text())
+    data = json.loads(catalog.read_text())
 elif command == "describe":
     assert args[0] == "--"
     if args[1] == "oversize":
@@ -102,6 +106,35 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ToolError, "decimal strings"):
             await self.cli.invoke("help.getConfig", {"peer": {"access_hash": 9007199254740993}})
         self.assertEqual((await self.cli.invoke("help.getConfig", {}))["data"]["params"], {})
+
+    async def test_auto_mode_invokes_new_methods_in_the_same_mcp_session(self):
+        cache = self.config.with_name("runtime-schema")
+        cache.write_text(json.dumps(["help.getConfig"]))
+        server = StdioServerParameters(command=sys.executable, args=[
+            "-m", "telegram_cli_mcp.server", "--tg", str(self.binary),
+            "--config", str(self.config), "--account", "existing-account",
+            "--schema-cache", str(cache), "--allow-all",
+        ])
+        async with stdio_client(server) as (read, write), ClientSession(read, write) as session:
+            await session.initialize()
+            before = await session.call_tool("telegram_list", {"query": "future"})
+            self.assertEqual(before.structuredContent["methods"], [])
+            cache.write_text(json.dumps(["help.getConfig", "messages.futureMethod"]))
+            listed = await session.call_tool("telegram_list", {"query": "future"})
+            self.assertEqual(listed.structuredContent["methods"], [
+                {"name": "messages.futureMethod", "allowed": True},
+            ])
+            called = await session.call_tool("telegram_invoke", {
+                "method": "messages.futureMethod", "params": {},
+            })
+            self.assertFalse(called.isError)
+            self.assertEqual(called.structuredContent["data"]["method"], "messages.futureMethod")
+
+    def test_runtime_schema_cannot_be_mixed_with_per_method_access(self):
+        with self.assertRaisesRegex(ValueError, "full method access"):
+            TelegramCLI(str(self.binary), self.config, "existing-account",
+                        self.cli.lock_file, frozenset({"invokeWithoutUpdates"}),
+                        schema_cache=self.config.with_name("runtime-schema"))
 
     async def test_bounded_process_output_and_time(self):
         async with asyncio.timeout(5):

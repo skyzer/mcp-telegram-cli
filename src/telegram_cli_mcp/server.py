@@ -15,7 +15,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import Field
 
-SCHEMA_NAME = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)?")
+SCHEMA_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)?")
 MAX_PARAMS = 24_000
 MAX_OUTPUT = 1_048_576
 MAX_SAFE_INTEGER = (1 << 53) - 1
@@ -63,12 +63,19 @@ class TelegramCLI:
     account: str
     lock_file: Path
     allowed: frozenset[str]
+    schema_cache: Path | None = None
+    allow_all: bool = False
+
+    def __post_init__(self) -> None:
+        if self.schema_cache is not None and not self.allow_all:
+            raise ValueError("Runtime schema mode requires full method access")
 
     async def run(self, command: str, *args: str, timeout: float) -> Any:
+        schema = ["--schema-cache", str(self.schema_cache)] if self.schema_cache is not None else []
         try:
             process = await asyncio.create_subprocess_exec(
                 self.binary, "--config", str(self.config), "--account", self.account,
-                "--output", "json", "rpc", command, *args,
+                "--output", "json", "rpc", *schema, command, *args,
                 stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )
@@ -111,7 +118,7 @@ class TelegramCLI:
             raise ToolError("tg rpc list did not return a list of method names")
         matching = [name for name in names if query.casefold() in name.casefold()]
         return {
-            "methods": [{"name": name, "allowed": name in self.allowed}
+            "methods": [{"name": name, "allowed": self.allow_all or name in self.allowed}
                         for name in matching[offset:offset + limit]],
             "next_offset": offset + limit if offset + limit < len(matching) else None,
             "total": len(matching),
@@ -126,7 +133,9 @@ class TelegramCLI:
         return description
 
     async def invoke(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
-        if method not in self.allowed:
+        if not is_schema_name(method):
+            raise ToolError("Expected a Telegram method name")
+        if not self.allow_all and method not in self.allowed:
             raise ToolError("Telegram method is outside the configured allowlist")
         try:
             payload = json.dumps(params, allow_nan=False, separators=(",", ":"))
@@ -183,16 +192,26 @@ def main() -> None:
     parser.add_argument("--lock-file", type=Path, help="Shared lock file used by cooperating callers")
     parser.add_argument("--allow", action="append", default=[], metavar="METHOD",
                         help="Allow this exact RPC name. Repeat for each method to enable.")
+    parser.add_argument("--allow-all", action="store_true",
+                        help="Let this MCP client invoke any method the configured CLI knows")
+    parser.add_argument("--schema-cache", type=Path,
+                        help="Use a runtime-capable tg and automatically refresh its published schema cache")
     args = parser.parse_args()
     if not args.account.strip() or args.account.casefold() == "all":
         parser.error("--account must name one existing account")
     if not all(is_schema_name(name) for name in args.allow):
         parser.error("--allow requires a Telegram schema method name")
+    if args.allow_all and args.allow:
+        parser.error("Use --allow-all or --allow, not both")
+    if args.schema_cache and not args.allow_all:
+        parser.error("--schema-cache requires --allow-all")
 
     config = args.config.expanduser().resolve()
     lock_file = args.lock_file or config.with_name(".tg-session.lock")
     cli = TelegramCLI(args.tg, config, args.account, lock_file.expanduser().resolve(),
-                      frozenset(args.allow))
+                      frozenset(args.allow),
+                      args.schema_cache.expanduser().resolve() if args.schema_cache else None,
+                      args.allow_all)
     make_server(cli).run(transport="stdio")
 
 
