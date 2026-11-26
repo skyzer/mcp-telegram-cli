@@ -65,13 +65,19 @@ class TelegramCLI:
     allowed: frozenset[str]
     schema_cache: Path | None = None
     allow_all: bool = False
+    linked_app_id: int | None = None
 
     def __post_init__(self) -> None:
         if self.schema_cache is not None and not self.allow_all:
             raise ValueError("Runtime schema mode requires full method access")
+        if self.linked_app_id is not None and (
+                self.schema_cache is None or not 0 < self.linked_app_id <= 2_147_483_647):
+            raise ValueError("A positive linked app ID requires a runtime schema cache")
 
     async def run(self, command: str, *args: str, timeout: float) -> Any:
         schema = ["--schema-cache", str(self.schema_cache)] if self.schema_cache is not None else []
+        if self.linked_app_id is not None:
+            schema.extend(["--linked-app-id", str(self.linked_app_id)])
         try:
             process = await asyncio.create_subprocess_exec(
                 self.binary, "--config", str(self.config), "--account", self.account,
@@ -196,6 +202,8 @@ def main() -> None:
                         help="Let this MCP client invoke any method the configured CLI knows")
     parser.add_argument("--schema-cache", type=Path,
                         help="Use a runtime-capable tg and automatically refresh its published schema cache")
+    parser.add_argument("--linked-app-id", type=int,
+                        help="Public app ID shown by tg devices for the linked session")
     args = parser.parse_args()
     if not args.account.strip() or args.account.casefold() == "all":
         parser.error("--account must name one existing account")
@@ -205,13 +213,16 @@ def main() -> None:
         parser.error("Use --allow-all or --allow, not both")
     if args.schema_cache and not args.allow_all:
         parser.error("--schema-cache requires --allow-all")
+    if args.linked_app_id is not None and (
+            args.schema_cache is None or not 0 < args.linked_app_id <= 2_147_483_647):
+        parser.error("--linked-app-id requires --schema-cache and a positive TL int")
 
     config = args.config.expanduser().resolve()
     lock_file = args.lock_file or config.with_name(".tg-session.lock")
     cli = TelegramCLI(args.tg, config, args.account, lock_file.expanduser().resolve(),
                       frozenset(args.allow),
                       args.schema_cache.expanduser().resolve() if args.schema_cache else None,
-                      args.allow_all)
+                      args.allow_all, args.linked_app_id)
     make_server(cli).run(transport="stdio")
 
 

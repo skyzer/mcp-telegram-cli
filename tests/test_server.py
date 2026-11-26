@@ -26,6 +26,9 @@ catalog = Path(argv[1])
 if command == "--schema-cache":
     catalog = Path(args[0])
     command, *args = args[1:]
+if command == "--linked-app-id":
+    assert args[0] == "12345"
+    command, *args = args[1:]
 if command == "list":
     data = json.loads(catalog.read_text())
 elif command == "describe":
@@ -113,7 +116,7 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         server = StdioServerParameters(command=sys.executable, args=[
             "-m", "telegram_cli_mcp.server", "--tg", str(self.binary),
             "--config", str(self.config), "--account", "existing-account",
-            "--schema-cache", str(cache), "--allow-all",
+            "--schema-cache", str(cache), "--allow-all", "--linked-app-id", "12345",
         ])
         async with stdio_client(server) as (read, write), ClientSession(read, write) as session:
             await session.initialize()

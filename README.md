@@ -52,7 +52,15 @@ Run the bridge with the same OS user, config, account label, and storage access 
 
 ### Automatic schema updates and full method access
 
-Build the runtime-schema version of the [CLI fork](https://github.com/skyzer/cli/tree/codex/telegram-runtime-schema). Use a released runtime-capable binary or check out the pinned source revision before building. The older RPC binary only knows its compiled schema.
+Build the runtime-schema version of the [CLI fork](https://github.com/skyzer/cli/tree/9c6f5a9971db743424a157656b44464eaf079f3b). Use the pinned source revision for the following configuration:
+
+```sh
+git clone --branch codex/telegram-runtime-schema --single-branch https://github.com/skyzer/cli.git tg-runtime-source
+cd tg-runtime-source
+git switch --detach 9c6f5a9971db743424a157656b44464eaf079f3b
+mkdir -p "$HOME/.local/bin"
+go build -o "$HOME/.local/bin/tg-rpc" ./cmd/tg
+```
 
 ```sh
 telegram-cli-mcp \
@@ -64,6 +72,8 @@ telegram-cli-mcp \
 ```
 
 The CLI checks Telegram Desktop's published `api.tl` on the first request and at most once per five-minute freshness window while it is in use. It keeps the previous valid schema when the source is unavailable or serves an older layer. Methods become discoverable and callable in the existing MCP session after refresh. Telegram still decides which methods the account and live API layer can use.
+
+If the existing `tg` release embedded the app credentials, run `tg devices` with that same config and account. Add `--linked-app-id` followed by the public app ID from the current device. The runtime binary can then reuse the authorized session without an app hash or another login.
 
 `--allow-all` grants the full Telegram account's RPC authority. Use it on an authenticated owner route. Automatic mode requires full access because a raw TL method can wrap a nested RPC. Use the installed-schema mode with explicit `--allow` entries for a restricted client. With runtime TL inputs, omit flags words such as `flags`, omit false presence flags, and pass byte fields as base64.
 
